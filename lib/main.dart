@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:pdf/pdf.dart';
@@ -80,84 +81,111 @@ class _PrintScreenState extends State<PrintScreen> {
       pw.Page(
         pageFormat: PdfPageFormat.a4.landscape,
         build: (pw.Context context) {
-          final pageWidth = PdfPageFormat.a4.landscape.width;
-          final pageHeight = PdfPageFormat.a4.landscape.height;
+          final margin = 5.0; // small margin
 
-          // Define the area for "To," + address
-          final contentWidth = pageWidth * 0.75;   // 75% of page width
-          final contentHeight = pageHeight * 0.5;  // top half of page
+          final toAddressText = "To,\n$address";
+          final fromText = "From: $from\nName: $name\nPhone Number: $phone";
 
-          // Vertical offsets
-          final verticalOffsetTop = 80.0;   // shift "To," block upwards
-          final verticalOffsetBottom = 5.0; // shift bottom-right block downward
+          // Function to calculate optimal font size
+          double calculateOptimalFontSize(
+              String text,
+              double maxWidth,
+              double maxHeight, {
+                double maxFontSize = 40,
+                double minFontSize = 8,
+              }) {
+            double fontSize = maxFontSize;
 
-          return pw.Stack(
-            children: [
-              // Left-aligned, vertically centered "To," + address
-              pw.Positioned(
-                top: (pageHeight - contentHeight) / 2 - verticalOffsetTop,
-                left: (pageWidth - contentWidth) / 2,
+            while (fontSize >= minFontSize) {
+              final estimatedCharWidth = fontSize * 0.65; // more conservative
+              final estimatedLineHeight = fontSize * 1.3; // safer line spacing
+              final charsPerLine = (maxWidth / estimatedCharWidth).floor().clamp(1, 999);
+              final estimatedLines = (text.length / charsPerLine).ceil();
+              final estimatedHeight = estimatedLines * estimatedLineHeight;
+
+              // add ~5% margin for safety
+              if (estimatedHeight <= maxHeight * 0.95) {
+                return fontSize;
+              }
+              fontSize -= 1;
+            }
+            return minFontSize;
+          }
+
+
+          return pw.LayoutBuilder(
+            builder: (context, constraints) {
+              final boxWidth = constraints!.maxWidth - (margin * 2);
+              final boxHeight = constraints!.maxHeight - (margin * 2);
+
+              final topSectionHeight = boxHeight * 0.7;
+              final bottomSectionHeight = boxHeight * 0.3;
+
+              final availableTopWidth = boxWidth - 40; // minus padding
+              final availableTopHeight = topSectionHeight - 40;
+
+              final toFontSize = calculateOptimalFontSize(
+                toAddressText,
+                availableTopWidth,
+                availableTopHeight,
+                maxFontSize: 40,
+                minFontSize: 10,
+              );
+
+              return pw.Padding(
+                padding: pw.EdgeInsets.all(margin),
                 child: pw.Container(
-                  width: contentWidth,
-                  height: contentHeight,
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.black, width: 4),
+                  ),
                   child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    mainAxisAlignment: pw.MainAxisAlignment.center,
                     children: [
-                      pw.Text(
-                        "To,",
-                        style: pw.TextStyle(
-                          fontWeight: pw.FontWeight.bold,
-                          fontSize: 36,
-                        ),
-                      ),
-                      pw.SizedBox(height: 10),
+                      // Top 70% - To
                       pw.Expanded(
-                        child: pw.Text(
-                          address,
-                          style: pw.TextStyle(
-                            fontWeight: pw.FontWeight.bold,
-                            fontSize: 36,
+                        flex: 7,
+                        child: pw.Container(
+                          decoration: pw.BoxDecoration(
+                            border: pw.Border(
+                              bottom:
+                              pw.BorderSide(color: PdfColors.black, width: 3),
+                            ),
                           ),
-                          maxLines: null,
+                          padding: pw.EdgeInsets.all(20),
+                          alignment: pw.Alignment.centerLeft,
+                          child: pw.Text(
+                            toAddressText,
+                            style: pw.TextStyle(
+                              fontWeight: pw.FontWeight.bold,
+                              fontSize: toFontSize,
+                            ),
+                            textAlign: pw.TextAlign.left,
+                            maxLines: null,
+                            softWrap: true,
+                          ),
+                        ),
+                      ),
+                      // Bottom 30% - From
+                      pw.Expanded(
+                        flex: 3,
+                        child: pw.Container(
+                          padding: pw.EdgeInsets.all(20),
+                          alignment: pw.Alignment.centerLeft,
+                          child: pw.Text(
+                            fromText,
+                            style: pw.TextStyle(
+                              fontSize: 20,
+                            ),
+                            textAlign: pw.TextAlign.left,
+                            maxLines: null,
+                            softWrap: true,
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-
-              // Bottom-right info block
-              pw.Positioned(
-                bottom: verticalOffsetBottom,
-                right: 40,
-                child: pw.Container(
-                  width: 400,
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.end,
-                    children: [
-                      pw.Text(
-                        "From: $from",
-                        style: const pw.TextStyle(fontSize: 12),
-                        textAlign: pw.TextAlign.right,
-                      ),
-                      pw.SizedBox(height: 3),
-                      pw.Text(
-                        "Name: $name",
-                        style: const pw.TextStyle(fontSize: 12),
-                        textAlign: pw.TextAlign.right,
-                      ),
-                      pw.SizedBox(height: 2),
-                      pw.Text(
-                        "Phone Number: $phone",
-                        style: const pw.TextStyle(fontSize: 12),
-                        textAlign: pw.TextAlign.right,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+              );
+            },
           );
         },
       ),
@@ -168,6 +196,8 @@ class _PrintScreenState extends State<PrintScreen> {
     await file.writeAsBytes(await pdf.save());
     return file;
   }
+
+
 
 
 
@@ -220,6 +250,10 @@ class _PrintScreenState extends State<PrintScreen> {
 
       if (response.statusCode == 200) {
         setState(() => _status = "Sent to printer ✅");
+        // Reset fields after successful print
+        _addressController.clear();
+        _nameController.clear();
+        _phoneController.clear();
       } else {
         setState(() => _status = "Error: ${response.statusCode}");
       }
